@@ -1,8 +1,18 @@
+from math import floor
 from random import shuffle
 from functools import reduce
 
 from card import *
-from position import Position, flat_positions, get_value_position
+from position import (
+    BIG_PAYOUT,
+    MAX_POSITION_VALUE,
+    Position,
+    flat_positions,
+    get_close_cost,
+    get_payout_size,
+    get_player_paid,
+    get_value_position,
+)
 from strategy import Strategy
 from atests import Ok, game_card_number, players_limited_cards, test_strategy
 
@@ -20,14 +30,6 @@ HOUSE_INIT_CHIPS = 999_999
 HOUSE_PREVENTION_CUTOFF = 500_000
 CARDS_PER_PLAYER = 6
 
-SMALL_PAYOUT = 3
-MID_PAYOUT = 5
-BIG_PAYOUT = 10
-STONK_PAYOUT = 20
-
-BIG_SIZE_CUTOFF = 6
-MAX_POSITION_VALUE = 10
-
 total_players = 0
 current_round = 0
 
@@ -38,6 +40,9 @@ A card is a string of 2 chars, see CARDS for examples
 
 Chips: list[int] = []
 """Stack of chips per player_id"""
+
+Blinds: int = 0
+"""Pot of blinds that gets paid out if there's a stonk payout"""
 
 Hands: list[list[str]] = []
 """Hands per player_id"""
@@ -54,19 +59,20 @@ Discarded: list[str] = []
 Positions: list[Position] = [] * len(Chips)
 """List of positions, unordered"""
 
-Orderbook: list[list[str]] = []
-"""List of lists of cards a player will play this round. id of list = player_id"""
+Orderbook: dict[int, list[str]] = []
+"""Dict of player_id mapped to list of cards they play this round"""
 
 
 def reset_all():
-    global Chips, Hands, Strategies, Deck, Discarded, Positions, Orderbook
+    global Chips, Blinds, Hands, Strategies, Deck, Discarded, Positions, Orderbook
     Chips = []
+    Blinds = 0
     Hands = []
     Strategies = []
     Deck = CARDS.copy()
     Discarded = []
     Positions = []
-    Orderbook = []
+    Orderbook = {}
 
 
 def init_game(num_players: int, init_chips: int) -> tuple[list[int], int]:
@@ -79,7 +85,7 @@ def init_game(num_players: int, init_chips: int) -> tuple[list[int], int]:
     reset_all()
 
     total_players = num_players
-    Orderbook = [[]] * total_players
+    Orderbook = {}
 
     shuffle(Deck)
 
@@ -92,7 +98,8 @@ def init_game(num_players: int, init_chips: int) -> tuple[list[int], int]:
             hand.append(Deck.pop())
         Hands.append(hand)
 
-        Strategies.append(Strategy(player_id, hand)) # TODO if player, init a player strategy
+        Strategies.append(Strategy(player_id, hand))
+        # TODO if player, init a player strategy
     Strategies[-1].is_agent = True
 
     """The house is the last chip holder, player_id=-1"""
@@ -111,51 +118,63 @@ def gameloop() -> tuple[list[int], int]:
 
     while is_playing():
         current_round += 1
-        players_limited_cards(Positions, Hands, Chips, CARDS_PER_PLAYER)
+        players_limited_cards(Positions, Hands, Chips, Orderbook, CARDS_PER_PLAYER)
         game_card_number(Positions, Hands, Deck, Discarded)
 
-        players_passing = [False] * total_players
-        i = 0
+        # TODO broke players dont pay blinds
+        pay_blind()
 
         """Market opens: players open and close positions"""
-        while reduce(lambda a, v: a + v, players_passing, 0) < total_players-1:
+        for i in range(total_players):
             """Every round a different player starts"""
-            player_id: int = (i + current_round) % total_players 
-            if players_passing[player_id]:
+            player_id: int = (i + current_round) % total_players
+            if Chips[player_id] <= 0:
                 continue
 
             hand = Hands[player_id]
             cs = Strategies[player_id]
 
-            # TODO extend actions: act, pass
-            # action 1: open: accept from orderbook
-            # action 2: open: propose a new order
-            # action 3: close existing (with card, As or money)
-            # action 4: doubledown
-            # action 5: open against house
-            # action 6: pass
-            # action 7: default open against the house if nobody else
-
-            is_passing = cs.compute_current_action(hand.copy(), Positions, Chips)
-            if is_passing:
-                players_passing[player_id] = True
+            if not cs.compute_current_action(hand.copy(), Positions, Chips, Orderbook):
                 continue
 
-            new_cards = cs.open_cards + cs.close_cards
+            f_open = list(cs.open_cards.keys())
+            f_close = [cs.close_cards[c] for c in cs.close_cards if cs.close_cards[c]]
+            new_cards = f_open + f_close
             test_strategy(new_cards, hand)
 
             """Opening and closing positions reveals cards"""
-            [s.update_state(new_cards) for s in Strategies if s.player_id != i]
+            [s.update_state(new_cards) for s in Strategies if s.player_id != player_id]
 
             """Implements strategy's actions"""
             [hand.remove(card) for card in new_cards]
-            Orderbook[player_id] = cs.open_cards
-            close_positions(cs.close_pos, cs.close_cards, player_id)
 
-            # TODO match algo v2 - turns
-            i += 1
+            for my_card in cs.open_cards:
+                if type(cs.open_cards[my_card]) == Position:
+                    """Double down: WIP"""
+                    pass
+                elif type(cs.open_cards[my_card]) == str:
+                    """Market taker"""
+                    active_card__id = my_card + "_" + str(player_id)
+                    create_position(active_card__id, cs.open_cards[my_card])
+                else:
+                    """Market maker"""
+                    if Orderbook.get(player_id):
+                        Orderbook[player_id].append(my_card)
+                    else:
+                        Orderbook[player_id] = [my_card]
+            
+            for my_position in cs.close_cards:
+                my_card = cs.close_cards[my_position]
+                if type(my_card) == str:
+                    close_positions(my_position, my_card, player_id)
+                    # TODO may close position with more than one card
+                else:
+                    close_positions(my_position, None, player_id)
+                    Chips[player_id] -= get_close_cost(my_position)
 
-        match_algo_v1()
+            players_limited_cards(Positions, Hands, Chips, Orderbook, CARDS_PER_PLAYER)
+
+        match_algo_house()
 
         """Market closes: market moves, update state of strategies"""
         if len(Deck) == 0:
@@ -184,12 +203,17 @@ def gameloop() -> tuple[list[int], int]:
                 Chips[p.short] += payout
 
             """Pays the house its due"""
-            if p.is_house:
+            if p.has_house:
                 Chips[p.long * p.short * -1] -= 1
 
-        """Bankrupt players: close positions and discard hand"""
-        close_pos = [p for p in Positions if Chips[p.long] <= 0 or Chips[p.short] <= 0]
-        close_positions(close_pos, [], -1)
+        payout_blinds(market_card)
+
+        """Bankrupt players: close positions"""
+        for position in Positions:
+            if Chips[position.long] <= 0 or Chips[position.short] <= 0:
+                close_positions(position, None, -1)
+
+        """Bankrupt players: discard hand"""
         for player_id, hand in enumerate(Hands):
             if Chips[player_id] <= 0:
                 Discarded.extend(hand)
@@ -204,53 +228,38 @@ def gameloop() -> tuple[list[int], int]:
 
         """House takes fee to prevent long games"""
         if current_round > 100 and max(Chips[:-1]) > 30:
+            """only if players have enough chips"""
             for c, _ in enumerate(Chips):
                 Chips[c] -= BIG_PAYOUT
 
     return Chips, current_round
 
 
-def match_algo_v1():
-    """Matching algorithm v1: naive, first find, first serve, everyone else with house"""
+def create_position(active_card__id: str, passive_card__id: str):
+    """
+    Creates a new Position from the given two cards,
+    removes passive_card from the orderbook
+    """
+    [passive_card, p_player_id] = passive_card__id.split("_")
+    [active_card, a_player_id] = active_card__id.split("_")
+    p_player_id = int(p_player_id)
+    a_player_id = int(a_player_id)
+
+    Orderbook[p_player_id].remove(passive_card)
+
+    if is_long(active_card):
+        position = Position(a_player_id, p_player_id, [active_card, passive_card])
+    else:
+        position = Position(p_player_id, a_player_id, [active_card, passive_card])
+    Positions.append(position)
+
+
+def match_algo_house():
+    """Matches remaining orderbook with the house"""
     global Orderbook
 
-    for i, _ in enumerate(Orderbook):
-        player_id: int = (i + current_round) % total_players
+    for player_id in Orderbook:
         player_cards = Orderbook[player_id]
-
-        c = 0
-        is_matched = False
-        while c < len(player_cards):
-            card = player_cards[c]
-            is_player_long = is_long(card)
-
-            for m, _ in enumerate(Orderbook):
-                m_player_id: int = (m + current_round + 1) % total_players
-                m_player_cards = Orderbook[m_player_id]
-
-                if m_player_id == player_id:
-                    continue
-                for m_card in m_player_cards:
-
-                    if is_player_long != is_long(m_card):
-                        if is_player_long:
-                            position = Position(player_id, m_player_id, [m_card, card])
-                        else:
-                            position = Position(m_player_id, player_id, [m_card, card])
-                        Positions.append(position)
-                        is_matched = True
-                        player_cards.remove(card)
-                        m_player_cards.remove(m_card)
-                        break
-                if is_matched:
-                    break
-            if is_matched:
-                break
-            else:
-                c += 1
-
-    """Match rest of orderbook with the house"""
-    for player_id, player_cards in enumerate(Orderbook):
         for card in player_cards:
             if is_long(card):
                 position = Position(player_id, -1, [card])
@@ -258,12 +267,10 @@ def match_algo_v1():
                 position = Position(-1, player_id, [card])
             Positions.append(position)
 
-    Orderbook = [[]] * total_players
+    Orderbook = {}
 
 
-def close_positions(
-    close_pos: list[Position], close_cards: list[str], close_player_id: int
-):
+def close_positions(close_pos: Position, close_card: str, close_player_id: int):
     """
     Closes the position with the card, discards all cards and deals new cards to palyers.
     Will throw an error if it cant close the position with the given cards.
@@ -272,52 +279,37 @@ def close_positions(
     """
     global Positions, Discarded, Deck
 
-    if close_player_id >= 0:
-        """Verifying we can close positions. Will throw an error if it cant"""
-        Ok(
-            len(close_cards) == len(close_pos),
-            "Strategy Error: close cards and pos not of the same length",
-        )
-        Ok(
-            len([p for p in close_pos if not p.has_player(close_player_id)]) == 0,
-            "Strategy Error: cant close this position",
-        )
-
-        __close_cards = close_cards.copy()
-        close_cards.sort(key=get_value)
-        close_pos.sort(key=get_value_position)
-        for p in close_pos:
-            for c in close_cards:
-                """looking for the first card.value >= pos.value"""
-                is_value_ok = get_value(c) >= get_value_position(p)
-                is_color_ok = is_long(c) != p.is_player_long(close_player_id)
-                if c[0] == "A" or (is_value_ok and is_color_ok):
-                    __close_cards.remove(c)
-                    break
-        #     else:
-        #         Ok(False, f"Strategy Error: {close_player_id} cant close position {p} with {close_cards}")
-        # Ok(len(__close_cards) == 0, f"Strategy Error: cards {__close_cards} cant close any position in {close_pos}")
-
-    Positions = [p for p in Positions if p not in close_pos]
-    Discarded.extend(flat_positions(close_pos) + close_cards)
+    if close_card and close_player_id >= 0:
+        """Verifying we can close the position. Will throw an error if it cant"""
+        is_value_ok = get_value(close_card) >= get_value_position(close_pos)
+        is_color_ok = is_long(close_card) != close_pos.is_player_long(close_player_id)
+        # TODO uncoment line below
+        # Ok(close_card[0] == "A" or (is_value_ok and is_color_ok), f"Strategy Error: {close_player_id} cant close position {close_pos} with {close_card}")
+        Discarded.append(close_card)
+    Discarded.extend(close_pos.cards)
+    Positions = [p for p in Positions if p != close_pos]
 
     """Deals cards to players: 2 cards to one forcing the close, one card to the other"""
     did_reshuffle = False
-    for pos in close_pos:
-        for player_id in [p for p in [close_player_id, pos.long, pos.short] if p != -1]:
-            if len(Deck) == 0:
-                Deck = Discarded.copy()
-                Discarded = []
-                shuffle(Deck)
-                did_reshuffle = True
-            card = Deck.pop()
-            Hands[player_id].append(card)
-            Strategies[player_id].update_state([card])
+
+    deals = [close_pos.long, close_pos.short]
+    if close_card:
+        deals.append(close_player_id)
+    for player_id in [p_id for p_id in deals if p_id != -1]:
+        if len(Deck) == 0:
+            Deck = Discarded.copy()
+            Discarded = []
+            shuffle(Deck)
+            did_reshuffle = True
+        card = Deck.pop()
+        Hands[player_id].append(card)
+        Strategies[player_id].update_state([card])
+        # TODO we are overdealing to someone
 
     if did_reshuffle:
         """Reshuffling resets all Strategy's state"""
-        cards = Hands[player_id] + flat_positions(Positions)
-        [s.update_state(cards, reset=True) for s in Strategies]
+        for i, strategy in enumerate(Strategies):
+            strategy.update_state(Hands[i] + flat_positions(Positions), reset=True)
 
 
 def is_playing() -> bool:
@@ -327,20 +319,22 @@ def is_playing() -> bool:
     return reduce(lambda a, v: (v > 0) + a, Chips[:-1], 0) > 1
 
 
-def get_payout_size(position: Position, market_card: str) -> int:
-    """According to game's rules"""
-    position_value = get_value_position(position)
-    is_big_position = position_value > BIG_SIZE_CUTOFF
-    is_big_market = is_big(market_card)
+def pay_blind():
+    global Blinds, Chips
 
-    if is_big_market and is_big_position:
-        if position_value >= MAX_POSITION_VALUE and is_face(market_card):
-            return STONK_PAYOUT
-        else:
-            return BIG_PAYOUT
+    player_id = (total_players + current_round) % total_players
+    Chips[player_id] -= BIG_PAYOUT
+    Blinds += BIG_PAYOUT
 
-    elif is_big_market or is_big_position:
-        return MID_PAYOUT
 
-    else:
-        return SMALL_PAYOUT
+def payout_blinds(market_card: str):
+    global Blinds, Chips
+    paid_players = []
+    for p in Positions:
+        if get_value_position(p) == MAX_POSITION_VALUE:
+            paid_players.append(get_player_paid(market_card, p))
+
+    if len(paid_players) > 0:
+        for player_id in paid_players:
+            Chips[player_id] += floor(Blinds / len(paid_players))
+        Blinds = 0

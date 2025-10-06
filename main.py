@@ -3,11 +3,11 @@ from tqdm import tqdm
 
 
 def study():
-    total_players = 2
+    total_players = 5
     wins = [0] * total_players
-    for j in (range(1)):
+    for j in range(100):
         Chips, rounds = init_game(total_players, 500)
-        # print(Chips, rounds)
+        print("end game", Chips, rounds)
         for i, chips in enumerate(Chips[:-1]):
             if chips > 0:
                 wins[i] += 1

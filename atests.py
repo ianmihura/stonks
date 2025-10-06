@@ -19,7 +19,7 @@ def players_limited_cards(
         num = len([c for c in hand])
         num += len(["1" for p in Positions if p.has_player(player_id)])
         if num != CARDS_PER_PLAYER:
-            assert False, "Main Error: player's cards"
+            assert False, f"Main Error: player {player_id} has {num} cards"
     return True
 
 
@@ -31,10 +31,7 @@ def game_card_number(
 ) -> bool:
     Ok(
         len(
-            flat_positions(Positions)
-            + [c for h in Hands for c in h]
-            + Deck
-            + Discarded
+            flat_positions(Positions) + [c for h in Hands for c in h] + Deck + Discarded
         )
         == len(CARDS),
         "Main Error: game's cards",
