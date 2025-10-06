@@ -1,5 +1,6 @@
 from functools import reduce
 from random import random as R
+import sys
 from card import get_value, is_long
 from position import Position, get_close_cost
 
@@ -138,6 +139,7 @@ class Strategy:
         Positions: list[Position],
         Chips: list[int],
         Orderbook: dict[int, list[str]],
+        Blinds: int,
     ) -> bool:
         """
         Returns
@@ -149,9 +151,7 @@ class Strategy:
         self.close_cards = {}
 
         if self.is_agent:
-            is_acting = False
-            import ipdb; ipdb.set_trace()
-            return is_acting
+            return self.ui_loop(Positions,Chips,Orderbook,Blinds)
 
         """I try to close any unreasonable positions"""
         is_closing = self.compute_close_card_actions(Positions, Chips[self.player_id])
@@ -257,3 +257,219 @@ class Strategy:
                 if is_long(card) != self.expects_long:
                     return card + "_" + str(other_player_id)
         return ""
+
+    def ui_loop(
+        self,
+        Positions: list[Position],
+        Chips: list[int],
+        Orderbook: dict[int, list[str]],
+        Blinds: int
+    ) -> bool:
+        """Helps user interact with the game, returns bool is_acting"""
+
+        is_acting = False
+        while True:
+            print()
+            print("Its your turn, type h for help")
+            print(">")
+            inp = input()
+            match inp:
+                case "print" | "p":
+                    print(f"Your count is {self.count} with confidence {self.C():.4f}")
+                    print("Your info:")
+                    print("Hand", self.hand)
+                    print("Positions", [p for p in Positions if p.has_player(self.player_id)])
+                    print("Chips", Chips[self.player_id])
+                    print()
+                    print("Other info:")
+                    print("  Blinds", Blinds)
+                    print("  All Positions", Positions)
+                    print("  All Chips", Chips)
+                    print()
+                    print("  Orderbook", Orderbook)
+                
+                case "review" | "r":
+                    print("Pending actions this turn:")
+                    print("  open_cards", self.open_cards)
+                    print("  close_cards", self.close_cards)
+                    print("")
+                    print("To clear all action type rr, or reset")
+                    # TODO print nicer
+
+                case "reset" | "rr":
+                    print("Cleared all actions")
+                    self.open_cards = {}
+                    self.close_cards = {}
+                    is_acting = False
+
+                case "open" | "o":
+                    print(">> Open a position")
+                    if card := get_card(self.hand):
+                        while True:
+                            print("Will you be a market maker or a taker?")
+                            print("  Type 'make' to propose the card to the orderbook")
+                            print("  Type 'take' to open a position with an existing card")
+                            print("  Type 'back' or 'b' to go back")
+                            print(">")
+
+                            inp = input()
+                            if inp == "make":
+                                self.open_cards[card] = None
+                                is_acting = True
+                                break
+                            elif inp == "take":
+                                flat_ob = reduce(lambda a, v: a + Orderbook[v], Orderbook, [])
+                                other_card = get_card(flat_ob)
+                                self.open_cards[card] = other_card
+                                is_acting = True
+                                break
+                            elif inp in ["back", "b"]:
+                                break
+                            else:
+                                continue
+
+                case "close" | "c":
+                    print(">> Close a position")
+                    if position := get_position(Positions):
+                        while True:
+                            print("Will you close with chips or a cards?")
+                            print("  Type 'chip' to close the position with chips")
+                            print("  Type 'card' to close the position with an existing card")
+                            print("  Type 'back' or 'b' to go back")
+                            print(">")
+
+                            inp = input()
+                            if inp == "chip":
+                                self.close_cards[position] = None
+                                is_acting = True
+                                break
+                            elif inp == "card":
+                                card = get_card(self.hand)
+                                self.close_cards[position] = card
+                                is_acting = True
+                                break
+                            elif inp in ["back", "b"]:
+                                break
+                            else:
+                                continue
+
+                case "ok" | "k":
+                    print("Finished turn")
+                    break
+
+                case "quit" | "q" | "exit" | "exit()":
+                    print("Goodbye")
+                    sys.exit()
+
+                case "welcome" | "w":
+                    print_welcome()
+
+                case _:
+                    print()
+                    print("Type any of the following commands to play")
+                    print()
+                    print("Information:")
+                    print("  p,  print    Print the information of your state")
+                    print("  r,  review   Review your actions")
+                    print("  rr, reset    Reset all your pending action")
+                    print()
+                    print("Actions:")
+                    print("  c,  close    Close a position...")
+                    print("  o,  open     Open a position...")
+                    print("  ok           End your turn (review your actions before commiting!)")
+                    print()
+
+        return is_acting
+
+def get_card(cards: list[str]) -> str|None:
+    """Prompts the user to choose a card from a list of possible cards"""
+    if len(cards) == 0:
+        print("You cannot do this, there's no available card")
+        return
+
+    while True:
+        print("Please select a card from one of the following", cards)
+        print("  (type back or b to go back)")
+        print(">")
+        inp = input()
+        if inp in cards:
+            print("selected", inp)
+            return inp
+        elif inp in ["back", "b"]:
+            return
+        else:
+            print(inp, "not in list of cards, select one of the following", cards)
+
+def get_position(Positions: list[Position]) -> Position|None:
+    """Prompts user to choose a position from a list of possible positions"""
+    if len(Positions) == 0:
+        print("You cannot do this, there's no Position availabe")
+        return
+
+    while True:
+        print("Please select a position out of the following", Positions)
+        print("  By typing out the index number")
+        print("  (type back or b to go back)")
+        print(">")
+        inp = input()
+        try:
+            id = int(inp)
+        except:
+            print("Please type a number smaller than", len(Positions))
+
+        if id > 0 and id < len(Positions):
+            print("selected", Positions[id])
+            return Positions[id]
+        elif inp in ["back", "b"]:
+            return
+        else:
+            print("Please type a number smaller than", len(Positions))
+
+def print_welcome():
+    print()
+    print("##################################################################")
+    print()
+    print("  :####:                                 ##                     ##")
+    print(" :######     ##                          ##                     ##")
+    print(" ##:  :#     ##                          ##                     ##")
+    print(" ##        #######    .####.   ##.####   ##   ##:   :#####.     ##")
+    print(" ###:      #######   .######.  #######   ##  ##:   ########     ##")
+    print(" :#####:     ##      ###  ###  ###  :##  ##:##:    ##:  .:#     ##")
+    print("  .#####:    ##      ##.  .##  ##    ##  ####      ##### .      ##")
+    print("     :###    ##      ##    ##  ##    ##  #####     .######:     ##")
+    print("       ##    ##      ##.  .##  ##    ##  ##.###       .: ##       ")
+    print(" #:.  :##    ##.     ###  ###  ##    ##  ##  ##:   #:.  :##       ")
+    print(" #######:    #####   .######.  ##    ##  ##  :##   ########     ##")
+    print(" .#####:     .####    .####.   ##    ##  ##   ###  . ####       ##")
+    print()
+    print("##################################################################")
+    print()
+    print("You are playing Stonks! A card game inspired by poker and stock trading.")
+    print()
+    print("If you have any doubts regarding the rules of the game, check:")
+    print("  https://github.com/ianmihura/stonks")
+    print()
+    print("If you find a bug, email me at")
+    print("  mihura.ian@gmail.com")
+    print()
+    print("*                                                         ")
+    print("@                                                         ")
+    print("@                                                ###      ")
+    print("@                                            ######       ")
+    print("@                                             ####        ")
+    print("@                                          ###  #         ")
+    print("@                                        ###              ")
+    print("@                                      ###                ")
+    print("@                                    ###                  ")
+    print("@                                  ###                    ")
+    print("@                     ##         ###                      ")
+    print("@                   ##  ###    ###                        ")
+    print("@      ##          ##      ####                           ")
+    print("@    #####        ##                                      ")
+    print("@   ##    ##     ##                                       ")
+    print("@  ##       ##  ##                                        ")
+    print("@ ##          ###                                         ")
+    print("@                                                         ")
+    print("@                                                         ")
+    print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    print()

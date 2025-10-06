@@ -17,13 +17,9 @@ from strategy import Strategy
 from atests import Ok, game_card_number, players_limited_cards, test_strategy
 
 
-def log():
-    return
-    print(Positions)
-    print(Deck)
-    print(Discarded)
-    print(Hands)
-    print(Chips)
+def log(*args):
+    if is_printing:
+        print(*args)
 
 
 HOUSE_INIT_CHIPS = 999_999
@@ -32,6 +28,8 @@ CARDS_PER_PLAYER = 6
 
 total_players = 0
 current_round = 0
+
+is_printing = True
 
 
 """
@@ -118,7 +116,6 @@ def gameloop() -> tuple[list[int], int]:
 
     while is_playing():
         current_round += 1
-        players_limited_cards(Positions, Hands, Chips, Orderbook, CARDS_PER_PLAYER)
         game_card_number(Positions, Hands, Deck, Discarded)
 
         # TODO broke players dont pay blinds
@@ -134,7 +131,7 @@ def gameloop() -> tuple[list[int], int]:
             hand = Hands[player_id]
             cs = Strategies[player_id]
 
-            if not cs.compute_current_action(hand.copy(), Positions, Chips, Orderbook):
+            if not cs.compute_current_action(hand.copy(), Positions, Chips, Orderbook, Blinds):
                 continue
 
             f_open = list(cs.open_cards.keys())
@@ -151,6 +148,7 @@ def gameloop() -> tuple[list[int], int]:
             for my_card in cs.open_cards:
                 if type(cs.open_cards[my_card]) == Position:
                     """Double down: WIP"""
+                    # TODO double down
                     pass
                 elif type(cs.open_cards[my_card]) == str:
                     """Market taker"""
@@ -172,8 +170,10 @@ def gameloop() -> tuple[list[int], int]:
                     close_positions(my_position, None, player_id)
                     Chips[player_id] -= get_close_cost(my_position)
 
+            """Makes sure we didnt break anything"""
             players_limited_cards(Positions, Hands, Chips, Orderbook, CARDS_PER_PLAYER)
 
+        """Match rest of orderbook with house"""
         match_algo_house()
 
         """Market closes: market moves, update state of strategies"""
@@ -190,6 +190,8 @@ def gameloop() -> tuple[list[int], int]:
             market_card = Deck.pop()
             Discarded.append(market_card)
             [s.update_state([market_card]) for s in Strategies]
+        
+        log("Market card", market_card)
 
         """Payout positions"""
         for p in Positions:
@@ -218,19 +220,6 @@ def gameloop() -> tuple[list[int], int]:
             if Chips[player_id] <= 0:
                 Discarded.extend(hand)
                 del hand[:]
-
-        """House prevents bankruptcy: closes all positions against itself"""
-        ## Not needed as we already demand big payout every 100 rounds
-        # if Chips[-1] < HOUSE_PREVENTION_CUTOFF:
-        #     close_pos = [p for p in Positions if ((p.long+1) * (p.short+1)) == 0]
-        #     close_positions(close_pos, [], -1)
-        #     Chips[-1] = HOUSE_INIT_CHIPS
-
-        """House takes fee to prevent long games"""
-        if current_round > 100 and max(Chips[:-1]) > 30:
-            """only if players have enough chips"""
-            for c, _ in enumerate(Chips):
-                Chips[c] -= BIG_PAYOUT
 
     return Chips, current_round
 
@@ -274,8 +263,6 @@ def close_positions(close_pos: Position, close_card: str, close_player_id: int):
     """
     Closes the position with the card, discards all cards and deals new cards to palyers.
     Will throw an error if it cant close the position with the given cards.
-
-    TODO consider not asserting, for more resilient code, against bad programmed strategies.
     """
     global Positions, Discarded, Deck
 
@@ -294,6 +281,7 @@ def close_positions(close_pos: Position, close_card: str, close_player_id: int):
 
     deals = [close_pos.long, close_pos.short]
     if close_card:
+        """Deal twice to player if they closed the position with cards"""
         deals.append(close_player_id)
     for player_id in [p_id for p_id in deals if p_id != -1]:
         if len(Deck) == 0:
@@ -304,7 +292,6 @@ def close_positions(close_pos: Position, close_card: str, close_player_id: int):
         card = Deck.pop()
         Hands[player_id].append(card)
         Strategies[player_id].update_state([card])
-        # TODO we are overdealing to someone
 
     if did_reshuffle:
         """Reshuffling resets all Strategy's state"""

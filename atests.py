@@ -11,6 +11,7 @@ def players_limited_cards(
     Positions: list[Position],
     Hands: list[list[str]],
     Chips: list[int],
+    Orderbook: dict[int, list[str]],
     CARDS_PER_PLAYER: int,
 ) -> bool:
     for player_id, hand in enumerate(Hands):
@@ -18,6 +19,7 @@ def players_limited_cards(
             continue
         num = len([c for c in hand])
         num += len(["1" for p in Positions if p.has_player(player_id)])
+        num += len(Orderbook.get(player_id, []))
         if num != CARDS_PER_PLAYER:
             assert False, f"Main Error: player {player_id} has {num} cards"
     return True
