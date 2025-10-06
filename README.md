@@ -2,9 +2,12 @@
 
 Stonks is a betting game inspired by poker and stock market trading. The game was invented by Ian Mihura with no copyright associated. All the fun you have and the money you loose are yours alone.
 
-This repo includes a work-in-progress implementation for the game. 
+This repo includes a work-in-progress implementation for the game.
 
-It was especially useful for fine tuning the game mechanics and strategy. The plan is to make it into a working cli interactive game.
+# How to play
+
+1. Run the python main app `python main.py`
+2. That's it, you're playing! Type h to print out help
 
 # Rules of the game:
 
