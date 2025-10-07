@@ -73,15 +73,16 @@ def reset_all():
     Orderbook = {}
 
 
-def init_game(num_players: int, init_chips: int) -> tuple[list[int], int]:
+def init_game(num_players: int, init_chips: int, play: bool) -> tuple[list[int], int]:
     """
     Configures a new game, with auto Strategies and one agent.
     Returns: Chips (final state), round_count.
     """
     Ok(CARDS_PER_PLAYER * (num_players + 1) <= len(CARDS), "Too many players")
-    global Orderbook, total_players
+    global Orderbook, is_printing, total_players
     reset_all()
 
+    is_printing = play
     total_players = num_players
     Orderbook = {}
 
@@ -96,9 +97,7 @@ def init_game(num_players: int, init_chips: int) -> tuple[list[int], int]:
             hand.append(Deck.pop())
         Hands.append(hand)
 
-        Strategies.append(Strategy(player_id, hand))
-        # TODO if player, init a player strategy
-    Strategies[-1].is_agent = True
+        Strategies.append(Strategy(player_id, hand, player_id==0, playing=play))
 
     """The house is the last chip holder, player_id=-1"""
     Chips.append(HOUSE_INIT_CHIPS)

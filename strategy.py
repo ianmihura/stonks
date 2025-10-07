@@ -110,12 +110,16 @@ class Strategy:
         else:
             return f"S{self.player_id}: count:{self.count} C:{self.C:.4f}"
 
-    def __init__(self, player_id: int, hand: list[str]):
+    def __init__(self, player_id: int, hand: list[str], is_agent: bool, playing: bool):
         self.A = 0.5  # TODO v2. more strategy profiles
         self.L = 0.5  # TODO v2. more strategy profiles
 
         self.player_id = player_id
         self.update_state(hand, reset=True)
+        self.is_agent = is_agent
+        self.is_playing = playing
+        if is_agent and playing:
+            print_welcome()
 
     def is_active(self, threshold: float = R()) -> bool:
         """
@@ -133,6 +137,7 @@ class Strategy:
             (no risk of being assigned a house trade), so efficient player will always
             take if possible. We need an additional eagerness to be a market maker
         """
+        # TODO fine tune threshold for auto strategies
         assert threshold >= 0 and threshold <= 1
         return threshold < self.C
 
@@ -153,7 +158,7 @@ class Strategy:
         self.open_cards = {}
         self.close_cards = {}
 
-        if self.is_agent:
+        if self.is_agent and self.is_playing:
             return ui_loop(self, Positions, Chips, Orderbook, Blinds)
 
         """I try to close any unreasonable positions"""
@@ -283,18 +288,18 @@ def ui_loop(
         match inp:
             case "print" | "p":
                 print(f"Your count is {self.count} with confidence {self.C:.4f}")
+                print()
                 print("Your info:")
-                print("Hand", self.hand)
+                print("  Hand", self.hand)
                 print(
-                    "Positions", [p for p in Positions if p.has_player(self.player_id)]
+                    "  Your Positions", [p for p in Positions if p.has_player(self.player_id)]
                 )
-                print("Chips", Chips[self.player_id])
+                print("  Chips", Chips[self.player_id])
                 print()
                 print("Other info:")
                 print("  Blinds", Blinds)
                 print("  All Positions", Positions)
                 print("  All Chips", Chips)
-                print()
                 print("  Orderbook", Orderbook)
 
             case "review" | "r":
