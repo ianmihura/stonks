@@ -278,6 +278,18 @@ def ui_loop(
     Blinds: int,
 ) -> bool:
     """Helps user interact with the game, returns bool is_acting"""
+    print(f"Your count is {self.count} with confidence {self.C:.4f}")
+    print()
+    print("Your info:")
+    print("  Hand", self.hand)
+    print("  Your Positions", [p for p in Positions if p.has_player(self.player_id)])
+    print("  Chips", Chips[self.player_id])
+    print()
+    print("Other info:")
+    print("  Blinds", Blinds)
+    print("  All Positions", Positions)
+    print("  All Chips", Chips)
+    print("  Orderbook", Orderbook)
 
     is_acting = False
     while True:
@@ -286,7 +298,7 @@ def ui_loop(
         print(">")
         inp = input()
         match inp:
-            case "print" | "p":
+            case "print" | "p" | "info" | "i":
                 print(f"Your count is {self.count} with confidence {self.C:.4f}")
                 print()
                 print("Your info:")
@@ -388,14 +400,14 @@ def ui_loop(
                 print("Type any of the following commands to play")
                 print()
                 print("Information:")
-                print("  p,  print    Print the information of your state")
-                print("  r,  review   Review your actions")
+                print("  i,  info     Show the information of your state")
+                print("  r,  review   Review your pending actions")
                 print("  rr, reset    Reset all your pending action")
                 print()
                 print("Actions:")
                 print("  c,  close    Close a position...")
                 print("  o,  open     Open a position...")
-                print("  ok           End your turn (review your actions before!)")
+                print("  ok           End your turn (review your actions first!)")
                 print()
 
     return is_acting
