@@ -131,7 +131,9 @@ def gameloop() -> tuple[list[int], int]:
             hand = Hands[player_id]
             cs = Strategies[player_id]
 
-            if not cs.compute_current_action(hand.copy(), Positions, Chips, Orderbook, Blinds):
+            if not cs.compute_current_action(
+                hand.copy(), Positions, Chips, Orderbook, Blinds
+            ):
                 continue
 
             f_open = list(cs.open_cards.keys())
@@ -160,7 +162,7 @@ def gameloop() -> tuple[list[int], int]:
                         Orderbook[player_id].append(my_card)
                     else:
                         Orderbook[player_id] = [my_card]
-            
+
             for my_position in cs.close_cards:
                 my_card = cs.close_cards[my_position]
                 if type(my_card) == str:
@@ -190,7 +192,7 @@ def gameloop() -> tuple[list[int], int]:
             market_card = Deck.pop()
             Discarded.append(market_card)
             [s.update_state([market_card]) for s in Strategies]
-        
+
         log("Market card", market_card)
 
         """Payout positions"""
